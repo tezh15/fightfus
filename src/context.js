@@ -10,9 +10,11 @@ const PRIZE_SHARES = { first: 0.6, second: 0.3, third: 0.1 };
 
 function createEmptyTournament() {
   return {
+    mode: "tournament",
     players: [],
     status: "registration",
     rounds: [],
+    challenge: null,
     podium: null,
     createdAt: new Date().toISOString(),
     startedAt: null,
@@ -22,10 +24,12 @@ function createEmptyTournament() {
 
 function readTournament(data) {
   const validStatuses = ["registration", "active", "completed"];
+  const mode = data.mode === undefined ? "tournament" : data.mode;
   if (
     !Array.isArray(data.players) ||
     !validStatuses.includes(data.status) ||
-    !Array.isArray(data.rounds)
+    !Array.isArray(data.rounds) ||
+    !["tournament", "challenge"].includes(mode)
   ) {
     throw new Error("Los datos del torneo guardados en Firebase no tienen un formato válido.");
   }
@@ -45,6 +49,9 @@ function readTournament(data) {
     playerIds.add(player.id);
     return { id: player.id, name: player.name, entryFee: player.entryFee };
   });
+  if (mode === "challenge" && players.length > 2) {
+    throw new Error("Un desafío solo puede tener 2 jugadores.");
+  }
 
   const rounds = data.rounds.map((round) => {
     if (!round || !Number.isInteger(round.stageKey) || !Array.isArray(round.matches)) {
@@ -65,11 +72,47 @@ function readTournament(data) {
     });
     return { ...round, matches };
   });
+  let challenge = data.challenge || null;
+  if (challenge !== null) {
+    if (
+      mode !== "challenge" ||
+      players.length !== 2 ||
+      !Array.isArray(challenge.fightWinners) ||
+      challenge.fightWinners.length > 3 ||
+      challenge.fightWinners.some((winnerId) => !playerIds.has(winnerId)) ||
+      (challenge.winnerId !== null && !playerIds.has(challenge.winnerId))
+    ) {
+      throw new Error("El desafío guardado en Firebase no tiene un formato válido.");
+    }
+
+    const winsByPlayer = challenge.fightWinners.reduce((wins, winnerId) => ({
+      ...wins,
+      [winnerId]: (wins[winnerId] || 0) + 1,
+    }), {});
+    const decidedWinner = players.find((player) => winsByPlayer[player.id] >= 2)?.id || null;
+    if (
+      challenge.winnerId !== decidedWinner ||
+      (data.status === "completed" && decidedWinner === null) ||
+      (data.status === "active" && decidedWinner !== null)
+    ) {
+      throw new Error("El resultado del desafío guardado en Firebase no tiene un formato válido.");
+    }
+    challenge = { fightWinners: [...challenge.fightWinners], winnerId: challenge.winnerId };
+  }
+  if (
+    mode === "challenge" &&
+    ((data.status === "registration" && challenge !== null) ||
+      (data.status !== "registration" && challenge === null))
+  ) {
+    throw new Error("El desafío guardado en Firebase no tiene un formato válido.");
+  }
 
   return {
     ...data,
+    mode,
     players,
     rounds,
+    challenge,
     podium: data.podium || null,
   };
 }
@@ -194,6 +237,9 @@ export function AppProvider({ children }) {
       if (current.players.length >= MAX_PLAYERS) {
         throw new Error(`El torneo alcanzó el límite de ${MAX_PLAYERS} jugadores.`);
       }
+      if (current.mode === "challenge" && current.players.length >= 2) {
+        throw new Error("Un desafío solo puede tener 2 jugadores.");
+      }
       const nameKey = normalizedName.normalize("NFKC").toLocaleLowerCase("es");
       if (current.players.some((player) => (
         player.name.normalize("NFKC").toLocaleLowerCase("es") === nameKey
@@ -217,10 +263,33 @@ export function AppProvider({ children }) {
     });
   }
 
+  async function setCompetitionMode(mode) {
+    if (!["tournament", "challenge"].includes(mode)) {
+      throw new Error("El tipo de combate seleccionado no es válido.");
+    }
+    await updateTournament((current) => {
+      if (current.status !== "registration" || current.players.length > 0) {
+        throw new Error("El tipo de combate solo se puede cambiar antes de inscribir jugadores.");
+      }
+      return { ...current, mode, challenge: null };
+    });
+  }
+
   async function startTournament() {
     await updateTournament((current) => {
       if (current.status !== "registration") {
         throw new Error("Este torneo ya fue iniciado.");
+      }
+      if (current.mode === "challenge") {
+        if (current.players.length !== 2) {
+          throw new Error("El desafío necesita exactamente 2 jugadores.");
+        }
+        return {
+          ...current,
+          status: "active",
+          challenge: { fightWinners: [], winnerId: null },
+          startedAt: new Date().toISOString(),
+        };
       }
       if (current.players.length < 4) {
         throw new Error("Se necesitan al menos 4 jugadores para disputar el podio completo.");
@@ -230,6 +299,30 @@ export function AppProvider({ children }) {
         status: "active",
         rounds: [createFirstRound(current.players)],
         startedAt: new Date().toISOString(),
+      };
+    });
+  }
+
+  async function selectChallengeFightWinner(winnerId) {
+    await updateTournament((current) => {
+      if (current.mode !== "challenge" || current.status !== "active" || !current.challenge) {
+        throw new Error("No hay un desafío activo.");
+      }
+      if (!current.players.some((player) => player.id === winnerId)) {
+        throw new Error("El ganador debe ser uno de los participantes del desafío.");
+      }
+      if (current.challenge.winnerId) {
+        throw new Error("Este desafío ya tiene un ganador.");
+      }
+
+      const fightWinners = [...current.challenge.fightWinners, winnerId];
+      const wins = fightWinners.filter((fightWinnerId) => fightWinnerId === winnerId).length;
+      const challengeWinnerId = wins === 2 ? winnerId : null;
+      return {
+        ...current,
+        status: challengeWinnerId ? "completed" : "active",
+        completedAt: challengeWinnerId ? new Date().toISOString() : null,
+        challenge: { fightWinners, winnerId: challengeWinnerId },
       };
     });
   }
@@ -317,15 +410,12 @@ export function AppProvider({ children }) {
     if (dataStatus !== "ready") {
       throw new Error("Espera a que se carguen los datos del torneo e inténtalo de nuevo.");
     }
-    const archiveDocument = doc(collection(db, "tournaments"));
-
     await runTransaction(db, async (transaction) => {
       const snapshot = await transaction.get(TOURNAMENT_DOCUMENT);
       const current = readTournamentFromTransaction(snapshot);
       if (current.status !== "completed") {
         throw new Error("Solo se puede abrir un nuevo torneo cuando el actual haya finalizado.");
       }
-      transaction.set(archiveDocument, current);
       transaction.set(TOURNAMENT_DOCUMENT, createEmptyTournament());
     });
   }
@@ -342,8 +432,10 @@ export function AppProvider({ children }) {
         prizeShares: PRIZE_SHARES,
         addPlayer,
         removePlayer,
+        setCompetitionMode,
         startTournament,
         selectWinner,
+        selectChallengeFightWinner,
         startNewTournament,
       }}
     >

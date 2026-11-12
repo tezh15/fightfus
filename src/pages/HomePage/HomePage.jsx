@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import "./HomePage.scss";
+import ConfirmModal from "../../components/ConfirmModal/ConfirmModal";
 import LoginModal from "../../components/LoginModal/LoginModal";
 import SiteHeader from "../../components/SiteHeader/SiteHeader";
 import { useAppContext } from "../../context";
@@ -17,8 +18,10 @@ function HomePage({ authenticated, onLogin, onLogout }) {
     prizeShares,
     addPlayer,
     removePlayer,
+    setCompetitionMode,
     startTournament,
     selectWinner,
+    selectChallengeFightWinner,
     startNewTournament,
   } = useAppContext();
   const [loginModalOpen, setLoginModalOpen] = useState(false);
@@ -27,6 +30,7 @@ function HomePage({ authenticated, onLogin, onLogout }) {
   const [feedback, setFeedback] = useState("");
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmation, setConfirmation] = useState(null);
   const playerById = useMemo(
     () => new Map(tournament.players.map((player) => [player.id, player])),
     [tournament.players],
@@ -35,6 +39,19 @@ function HomePage({ authenticated, onLogin, onLogout }) {
   const isRegistration = tournament.status === "registration";
   const isActive = tournament.status === "active";
   const isComplete = tournament.status === "completed";
+  const isChallenge = tournament.mode === "challenge";
+  const challenge = tournament.challenge;
+  const challengeWins = tournament.players.map((player) => ({
+    player,
+    wins: challenge?.fightWinners.filter((winnerId) => winnerId === player.id).length || 0,
+  }));
+  const prizePlaces = isChallenge
+    ? [{ key: "winner", label: "Ganador", share: 1 }]
+    : [
+      { key: "first", label: "1.º lugar", share: prizeShares.first },
+      { key: "second", label: "2.º lugar", share: prizeShares.second },
+      { key: "third", label: "3.º lugar", share: prizeShares.third },
+    ];
   const podiumPlaces = [
     { key: "first", label: "1.º lugar", share: prizeShares.first },
     { key: "second", label: "2.º lugar", share: prizeShares.second },
@@ -81,28 +98,69 @@ function HomePage({ authenticated, onLogin, onLogout }) {
   }
 
   function handleRemovePlayer(player) {
-    if (!window.confirm(`¿Quitar a ${player.name} de las inscripciones?`)) return;
-    performAction(() => removePlayer(player.id), `${player.name} fue retirado del torneo.`);
+    setConfirmation({
+      title: "Retirar jugador",
+      message: `¿Quitar a ${player.name} de las inscripciones?`,
+      confirmLabel: "Retirar",
+      action: () => performAction(() => removePlayer(player.id), `${player.name} fue retirado del torneo.`),
+    });
   }
 
   function handleStartTournament() {
-    if (!window.confirm("Se sortearán los combates iniciales y se cerrarán las inscripciones. ¿Iniciar el torneo?")) {
-      return;
-    }
-    performAction(() => startTournament(), "Torneo iniciado. El cuadro aleatorio ya está disponible.");
+    setConfirmation({
+      title: isChallenge ? "Iniciar desafío" : "Iniciar torneo",
+      message: isChallenge
+        ? "Se cerrarán las inscripciones y comenzará el desafío al mejor de 3 combates."
+        : "Se sortearán los combates iniciales y se cerrarán las inscripciones.",
+      confirmLabel: isChallenge ? "Iniciar desafío" : "Iniciar torneo",
+      action: () => performAction(
+        () => startTournament(),
+        isChallenge ? "Desafío iniciado. Ganará quien consiga 2 victorias." : "Torneo iniciado. El cuadro aleatorio ya está disponible.",
+      ),
+    });
+  }
+
+  function handleModeChange(mode) {
+    performAction(
+      () => setCompetitionMode(mode),
+      mode === "challenge" ? "Modo desafío seleccionado." : "Modo torneo seleccionado.",
+    );
   }
 
   function handleNewTournament() {
-    if (!window.confirm("El resultado actual se guardará en el historial y se abrirán nuevas inscripciones. ¿Continuar?")) {
-      return;
-    }
-    performAction(() => startNewTournament(), "Nuevo torneo abierto.");
+    setConfirmation({
+      title: "Abrir nuevo torneo",
+      message: "El torneo actual se reemplazará y se abrirán nuevas inscripciones.",
+      confirmLabel: "Abrir torneo",
+      action: () => performAction(() => startNewTournament(), "Nuevo torneo abierto."),
+    });
   }
 
   function handleSelectWinner(roundId, match, winnerId) {
     const winner = playerById.get(winnerId);
-    if (!window.confirm(`¿Confirmar a ${winner.name} como ganador de este combate?`)) return;
-    performAction(() => selectWinner(roundId, match.id, winnerId));
+    setConfirmation({
+      title: "Confirmar ganador",
+      message: `¿Confirmar a ${winner.name} como ganador de este combate?`,
+      confirmLabel: "Confirmar ganador",
+      action: () => performAction(() => selectWinner(roundId, match.id, winnerId)),
+    });
+  }
+
+  function handleSelectChallengeFightWinner(winnerId) {
+    const winner = playerById.get(winnerId);
+    setConfirmation({
+      title: "Registrar resultado",
+      message: `¿Confirmar a ${winner.name} como ganador del combate ${challenge.fightWinners.length + 1}?`,
+      confirmLabel: "Confirmar ganador",
+      action: () => performAction(() => selectChallengeFightWinner(winnerId)),
+    });
+  }
+
+  function handleConfirmAction() {
+    if (!confirmation) return;
+    const { action } = confirmation;
+    setConfirmation(null);
+    action();
   }
 
   async function handleLogout() {
@@ -115,11 +173,17 @@ function HomePage({ authenticated, onLogin, onLogout }) {
     }
   }
 
-  const stageDescription = isRegistration
-    ? "Inscripciones abiertas"
-    : isActive
-      ? `En curso · ${currentRound?.name || "cuadro activo"}`
-      : "Torneo finalizado";
+  const stageDescription = isChallenge
+    ? isRegistration
+      ? "Desafío · inscripciones abiertas"
+      : isActive
+        ? `Desafío · combate ${challenge.fightWinners.length + 1} de 3`
+        : "Desafío finalizado"
+    : isRegistration
+      ? "Inscripciones abiertas"
+      : isActive
+        ? `En curso · ${currentRound?.name || "cuadro activo"}`
+        : "Torneo finalizado";
 
   return (
     <>
@@ -131,7 +195,7 @@ function HomePage({ authenticated, onLogin, onLogout }) {
         />
 
         <section className="league-hero">
-          <p className="eyebrow"><span className="eyebrow-dot" /> DOFUS · TORNEO PVP 1 VS 1</p>
+          <p className="eyebrow"><span className="eyebrow-dot" /> DOFUS · {isChallenge ? "DESAFÍO PVP 1 VS 1" : "TORNEO PVP"}</p>
           <h1>Fightfus <span>League</span></h1>
           <p className="hero-copy">
             Conviértete en el rey del PvP y en el capo de tu gremio. <br/> ¡Que Gultar esté orgulloso de ti!
@@ -142,7 +206,7 @@ function HomePage({ authenticated, onLogin, onLogout }) {
               <strong>{tournament.players.length}</strong>
             </div>
             <div className="hero-stat">
-              <span>Pozo acumulado</span>
+              <span>{isChallenge ? "Premio del ganador" : "Pozo acumulado"}</span>
               <strong>{formatKamas(prizePool)}</strong>
             </div>
             <div className="hero-stat">
@@ -170,14 +234,17 @@ function HomePage({ authenticated, onLogin, onLogout }) {
               <div className="section-heading">
                 <div>
                   <p className="eyebrow"><span className="eyebrow-dot" /> CUADRO</p>
-                  <h2>{isRegistration ? "Próximo torneo" : "Camino al podio"}</h2>
+                  <h2>{isChallenge ? "Desafío 1 vs 1" : isRegistration ? "Próximo torneo" : "Camino al podio"}</h2>
                 </div>
-                {isActive && currentRound && (
+                {isChallenge && isActive && (
+                  <span className="round-chip">Mejor de 3</span>
+                )}
+                {!isChallenge && isActive && currentRound && (
                   <span className="round-chip">{currentRound.name}</span>
                 )}
               </div>
 
-              {isRegistration && (
+              {isRegistration && !isChallenge && (
                 <div className="empty-bracket">
                   <span className="empty-bracket-icon" aria-hidden="true">⚔</span>
                   <p>El cuadro aparecerá cuando el organizador inicie el torneo.</p>
@@ -185,7 +252,73 @@ function HomePage({ authenticated, onLogin, onLogout }) {
                 </div>
               )}
 
-              {tournament.rounds.length > 0 && (
+              {isRegistration && isChallenge && (
+                <div className="empty-bracket">
+                  <span className="empty-bracket-icon" aria-hidden="true">⚔</span>
+                  <p>El desafío comenzará cuando haya 2 retadores inscritos.</p>
+                  <span>El ganador será quien consiga 2 victorias, como máximo en 3 combates.</span>
+                </div>
+              )}
+
+              {isChallenge && !isRegistration && challenge && (
+                <div className="challenge-series">
+                  <div className="challenge-score" aria-label="Marcador del desafío">
+                    {challengeWins.map(({ player, wins }) => (
+                      <div className="challenge-score-player" key={player.id}>
+                        <span>{player.name}</span>
+                        <strong>{wins}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="challenge-fights">
+                    {[0, 1, 2].map((fightIndex) => {
+                      const fightWinnerId = challenge.fightWinners[fightIndex];
+                      const fightWinner = playerById.get(fightWinnerId);
+                      const nextFight = isActive && fightIndex === challenge.fightWinners.length;
+                      return (
+                        <article className="challenge-fight" key={fightIndex}>
+                          <div className="challenge-fight-heading">
+                            <strong>Combate {fightIndex + 1}</strong>
+                            <span>
+                              {fightWinner
+                                ? `Ganador: ${fightWinner.name}`
+                                : isComplete
+                                  ? "No requerido"
+                                  : "Pendiente"}
+                            </span>
+                          </div>
+                          {nextFight && authenticated && (
+                            <div className="winner-actions">
+                              <span>Seleccionar ganador del combate</span>
+                              {tournament.players.map((player) => (
+                                <button
+                                  className="button button-light winner-button"
+                                  disabled={busy}
+                                  key={player.id}
+                                  onClick={() => handleSelectChallengeFightWinner(player.id)}
+                                  type="button"
+                                >
+                                  {player.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                  {isActive && (
+                    <p className="muted-copy">El desafío termina en cuanto un retador gana 2 combates.</p>
+                  )}
+                  {isComplete && challenge.winnerId && (
+                    <p className="challenge-winner">
+                      Ganador: <strong>{playerById.get(challenge.winnerId)?.name}</strong>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {!isChallenge && tournament.rounds.length > 0 && (
                 <div className="round-list">
                   {tournament.rounds.map((round, roundIndex) => (
                     <section className="round-section" key={round.id}>
@@ -257,7 +390,7 @@ function HomePage({ authenticated, onLogin, onLogout }) {
               )}
             </section>
 
-            {isComplete && tournament.podium && (
+            {!isChallenge && isComplete && tournament.podium && (
               <section className="panel podium-panel">
                 <p className="eyebrow"><span className="eyebrow-dot" /> PODIO FIGHTFUS</p>
                 <h2>Los campeones</h2>
@@ -283,11 +416,15 @@ function HomePage({ authenticated, onLogin, onLogout }) {
           <aside className="side-column">
             <section className="panel prize-panel">
               <p className="eyebrow"><span className="eyebrow-dot" /> RECOMPENSAS</p>
-              <h2>Pozo del torneo</h2>
+              <h2>{isChallenge ? "Premio del desafío" : "Pozo del torneo"}</h2>
               <p className="prize-total">{formatKamas(prizePool)}</p>
-              <p className="muted-copy">El pozo se calcula sumando las inscripciones registradas.</p>
+              <p className="muted-copy">
+                {isChallenge
+                  ? "El ganador recibe el 100% del pozo de inscripciones."
+                  : "El pozo se calcula sumando las inscripciones registradas."}
+              </p>
               <div className="prize-breakdown">
-                {podiumPlaces.map((place) => (
+                {prizePlaces.map((place) => (
                   <div className="prize-row" key={place.key}>
                     <span>{place.label} · {Math.round(place.share * 100)}%</span>
                     <strong>{formatKamas(Math.floor(prizePool * place.share))}</strong>
@@ -300,9 +437,35 @@ function HomePage({ authenticated, onLogin, onLogout }) {
               <div className="section-heading">
                 <div>
                   <p className="eyebrow"><span className="eyebrow-dot" /> INSCRIPCIONES</p>
-                  <h2>Jugadores <span className="count-chip">{tournament.players.length}</span></h2>
+                  <h2>{isChallenge ? "Retadores" : "Jugadores"} <span className="count-chip">{tournament.players.length}</span></h2>
                 </div>
               </div>
+
+              {authenticated && isRegistration && (
+                <div aria-label="Tipo de combate" className="competition-tabs" role="group">
+                  <button
+                    aria-pressed={!isChallenge}
+                    className={`competition-tab ${!isChallenge ? "is-selected" : ""}`}
+                    disabled={busy || tournament.players.length > 0}
+                    onClick={() => handleModeChange("tournament")}
+                    type="button"
+                  >
+                    Torneo
+                  </button>
+                  <button
+                    aria-pressed={isChallenge}
+                    className={`competition-tab ${isChallenge ? "is-selected" : ""}`}
+                    disabled={busy || tournament.players.length > 0}
+                    onClick={() => handleModeChange("challenge")}
+                    type="button"
+                  >
+                    Desafío
+                  </button>
+                </div>
+              )}
+              {authenticated && isRegistration && tournament.players.length > 0 && (
+                <p className="muted-copy">El tipo de combate queda fijado al inscribir al primer jugador.</p>
+              )}
 
               {authenticated && isRegistration && (
                 <form className="registration-form" onSubmit={handleAddPlayer}>
@@ -326,10 +489,10 @@ function HomePage({ authenticated, onLogin, onLogout }) {
                   </label>
                   <button
                     className="button button-dark full-button"
-                    disabled={busy || dataStatus !== "ready"}
+                    disabled={busy || dataStatus !== "ready" || (isChallenge && tournament.players.length >= 2)}
                     type="submit"
                   >
-                    Registrar jugador
+                    {isChallenge && tournament.players.length >= 2 ? "Desafío completo" : isChallenge ? "Registrar retador" : "Registrar jugador"}
                   </button>
                 </form>
               )}
@@ -375,11 +538,17 @@ function HomePage({ authenticated, onLogin, onLogout }) {
               {authenticated && isRegistration && (
                 <button
                   className="button button-dark full-button start-button"
-                  disabled={busy || dataStatus !== "ready" || tournament.players.length < 4}
+                  disabled={busy || dataStatus !== "ready" || (
+                    isChallenge ? tournament.players.length !== 2 : tournament.players.length < 4
+                  )}
                   onClick={handleStartTournament}
                   type="button"
                 >
-                  {busy ? "Guardando…" : `Iniciar torneo · ${tournament.players.length} jugadores`}
+                  {busy
+                    ? "Guardando…"
+                    : isChallenge
+                      ? `Iniciar desafío · ${tournament.players.length}/2 retadores`
+                      : `Iniciar torneo · ${tournament.players.length} jugadores`}
                 </button>
               )}
               {authenticated && isComplete && (
@@ -395,7 +564,9 @@ function HomePage({ authenticated, onLogin, onLogout }) {
             </section>
 
             <p className="admin-note">
-              El administrador registra los pagos y define manualmente el ganador de cada combate.
+              {isChallenge
+                ? "El organizador registra a los 2 retadores y confirma el ganador de cada combate."
+                : "El administrador registra los pagos y define manualmente el ganador de cada combate."}
             </p>
           </aside>
         </div>
@@ -410,6 +581,15 @@ function HomePage({ authenticated, onLogin, onLogout }) {
         <LoginModal
           onContinueAsGuest={() => setLoginModalOpen(false)}
           onLogin={onLogin}
+        />
+      )}
+      {confirmation && (
+        <ConfirmModal
+          confirmLabel={confirmation.confirmLabel}
+          message={confirmation.message}
+          onCancel={() => setConfirmation(null)}
+          onConfirm={handleConfirmAction}
+          title={confirmation.title}
         />
       )}
     </>
