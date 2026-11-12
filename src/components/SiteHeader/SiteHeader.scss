@@ -12,13 +12,14 @@
 }
 
 .topbar-brand {
-  width: 180px;
+  gap: 10px;
 }
 
-.header-logo {
+.brand-mark {
   display: block;
-  width: 100%;
-  height: auto;
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
 }
 
 .topbar-actions {
@@ -27,10 +28,10 @@
 
 .admin-label {
   color: var(--color-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
-@media (max-width: 430px) {
+@media (max-width: 500px) {
   .admin-label {
     display: none;
   }

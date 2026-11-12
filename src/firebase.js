@@ -3,12 +3,12 @@ import { getAuth } from "@firebase/auth";
 import { getFirestore } from "@firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyC5VxS7sCeYSMeirjn21NbiAHNk9QuytO4",
-  authDomain: "kamalote-a5227.firebaseapp.com",
-  projectId: "kamalote-a5227",
-  storageBucket: "kamalote-a5227.firebasestorage.app",
-  messagingSenderId: "260862394263",
-  appId: "1:260862394263:web:b49ae15918efbfff5d8ed2",
+  apiKey: "AIzaSyAr_M5VWtrfHXyJ0cE_mog6k7wOZWBeo-g",
+  authDomain: "fightfus-league.firebaseapp.com",
+  projectId: "fightfus-league",
+  storageBucket: "fightfus-league.firebasestorage.app",
+  messagingSenderId: "1085224697275",
+  appId: "1:1085224697275:web:c1eb0a6c7b45a6d04a589e",
 };
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);

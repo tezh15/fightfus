@@ -6,7 +6,7 @@ import { AppProvider } from "./context";
 import { auth } from "./firebase";
 import HomePage from "./pages/HomePage/HomePage";
 
-const ADMIN_UID = "TCksXZW37GMPS5AaKXXtlEJL1iF3";
+const ADMIN_UID = "uYznuvCPf9esXvM4NGRcJwfKhhb2";
 
 function App() {
   const [authenticated, setAuthenticated] = useState(false);

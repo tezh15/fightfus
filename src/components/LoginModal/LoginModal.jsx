@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import "./LoginModal.scss";
-import kamalotoLogo from "url:../../../public/assets/kamaloto.png";
 
 function LoginModal({ onLogin, onContinueAsGuest }) {
   const [username, setUsername] = useState("");
@@ -36,13 +35,13 @@ function LoginModal({ onLogin, onContinueAsGuest }) {
         aria-labelledby="login-title"
       >
         <div className="modal-heading">
-          <img alt="Kamaloto" className="modal-logo" src={kamalotoLogo} />
+          <span className="login-brand">FIGHTFUS <b>LEAGUE</b></span>
         </div>
-        <h2 id="login-title">Gestiona el sorteo</h2>
-        <p className="login-intro">Inicia sesión para administrar las inscripciones y los números del sorteo.</p>
+        <h2 id="login-title">Panel del organizador</h2>
+        <p className="login-intro">Inicia sesión para registrar jugadores y administrar el torneo.</p>
         <form onSubmit={handleSubmit}>
           <div className="field">
-            <label htmlFor="admin-user">Correo del organizador</label>
+            <label htmlFor="admin-user">Correo</label>
             <input
               autoComplete="username"
               id="admin-user"
@@ -71,7 +70,7 @@ function LoginModal({ onLogin, onContinueAsGuest }) {
             disabled={submitting || !credentialsComplete}
             type="submit"
           >
-            {submitting ? "Iniciando sesión..." : "Ingresar como Organizador"} <span aria-hidden="true">→</span>
+            {submitting ? "Iniciando sesión..." : "Ingresar"} <span aria-hidden="true">→</span>
           </button>
         </form>
         <button
@@ -79,7 +78,7 @@ function LoginModal({ onLogin, onContinueAsGuest }) {
           onClick={onContinueAsGuest}
           type="button"
         >
-          Ingresar como Jugador
+          Ver torneo
         </button>
       </section>
     </div>

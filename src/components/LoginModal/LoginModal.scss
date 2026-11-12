@@ -25,10 +25,16 @@
   margin-bottom: 22px;
 }
 
-.modal-logo {
-  display: block;
-  width: 150px;
-  height: auto;
+.login-brand {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+}
+
+.login-brand b {
+  color: var(--color-accent);
+  font-size: 10px;
 }
 
 .login-intro {
